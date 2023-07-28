@@ -1,1 +1,59 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
 
+import "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/v4.3.0/contracts/token/ERC20/ERC20.sol";
+import "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/v4.3.0/contracts/utils/math/SafeMath.sol";
+import "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/v4.3.0/contracts/access/Ownable.sol";
+
+contract FreshTea is ERC20, Ownable {
+    using SafeMath for uint256; // Using SafeMath for safe mathematical operations
+
+    // Constants for the buy and sell tax rates
+    uint256 constant public BUY_TAX_RATE = 5; // 5% buy tax rate
+    uint256 constant public SELL_TAX_RATE = 5; // 5% sell tax rate
+
+    // Address for the burn wallet
+    address private _burnWallet = 0x000000000000000000000000000000000000dEaD;
+    // Address for the dev wallet
+    address private _devWallet = 0x38f647fC95C8b178B9c2Ac36F05A952193225CeE;
+    // Address for the creator/owner wallet
+    address private _creatorWallet = 0x406AFd63f83D04522a26711C69bf47d7D5fF4d4c;
+
+    // The constructor function that is executed once when the contract is deployed
+    constructor() ERC20("Fresh Tea", "FreshT") {
+        // No need to set the total supply here as it's set dynamically in ERC20 constructor
+        uint256 totalSupply = 100000000000 * 10**decimals(); // 100 billion initial supply
+        _mint(msg.sender, totalSupply); // Mint the total supply to the contract creator/owner
+    }
+
+    // Event for logging buy transactions (transfer to the contract address)
+    event Buy(address indexed buyer, uint256 amount, uint256 taxAmount, uint256 netAmount);
+
+    // Event for logging sell transactions (transfer from any wallet other than the contract owner and dev wallet)
+    event Sell(address indexed seller, uint256 amount, uint256 taxAmount, uint256 netAmount);
+
+    // Event for logging burning of tokens from the selling tax
+    event BurnTax(address indexed seller, uint256 amount, uint256 netAmount);
+
+    // Overriding the _transfer function to implement tax logic
+    function _transfer(address sender, address recipient, uint256 amount) internal virtual override {
+        require(amount > 0, "Amount must be greater than 0");
+
+        uint256 taxAmount = 0;
+
+        if (recipient == address(this)) {
+            // The transfer is a buy transaction (transfer to the contract address)
+            taxAmount = amount.mul(BUY_TAX_RATE).div(100); // Calculate the buy tax amount
+            super._transfer(sender, _devWallet, taxAmount); // Send the buy tax to the dev wallet
+            emit Buy(sender, amount, taxAmount, amount.sub(taxAmount)); // Emit the buy event with net amount
+        } else if (sender != owner() && recipient != owner() && sender != _devWallet) {
+            // The transfer is a sell transaction (transfer from any wallet other than the contract owner and dev wallet)
+            taxAmount = amount.mul(SELL_TAX_RATE).div(100); // Calculate the sell tax amount
+            super._transfer(sender, _burnWallet, taxAmount); // Send the sell tax to the burn wallet (not burned from total supply)
+            emit Sell(sender, amount, taxAmount, amount.sub(taxAmount)); // Emit the sell event with net amount
+            emit BurnTax(sender, taxAmount, amount.sub(taxAmount)); // Emit the burn tax event with net amount
+        }
+
+        super._transfer(sender, recipient, amount.sub(taxAmount)); // Transfer the remaining amount
+    }
+}
